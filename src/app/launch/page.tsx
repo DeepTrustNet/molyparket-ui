@@ -11,7 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { HelpCircle, ExternalLink, Bot } from 'lucide-react'
 import { DatePicker } from "@/components/ui/date-picker"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { useConnectWalletSimple, useContracts, useErc20 } from "web3-react-ui"
+import { ApprovableButton, useConnectWalletSimple, useContracts, useErc20 } from "web3-react-ui"
 import { GLOBAL_CONFIG } from "@/types/token"
 import { AppConfig } from "@/types/pool"
 import { useMolyparket } from "@/hooks/use-molyparket"
@@ -25,13 +25,13 @@ export default function LaunchBetPage() {
   const { error, execute } = useContracts()
   const { address, chainId } = useConnectWalletSimple()
   const { molyparketInfo } = useMolyparket()
-  console.log('molyparketInfo', molyparketInfo)
   const { toHumanReadable, toMachineReadable, getBalance } = useErc20(molyparketInfo?.collateralTokenAddress || "", chainId!)
   const appConfig = GLOBAL_CONFIG['APP'] as AppConfig || {}
   const [userBalance, setUserBalance] = useState("0")
   const contractAddress = (appConfig.betMarketContracts || [])[chainId || 'N/A'] || ''
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [transactionId, setTransactionId] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
   const [formData, setFormData] = useState({
     title: "",
     logoUrl: "",
@@ -124,6 +124,7 @@ export default function LaunchBetPage() {
   }
 
   const onTransactionSubmitted = (tx: string) => {
+    if (!tx) { return }
     console.log('transaction submitted:', tx);
     setTransactionId(tx)
     setIsTransactionModalOpen(true)
@@ -155,6 +156,8 @@ export default function LaunchBetPage() {
    const machineAmount = toMachineReadable(formData.collateral)
    console.log('machineAmount', { machineAmount, closingTime, resolutionTime })
    console.log('About to create BET!', formData)
+   setPending(true)
+   try {
     const tx = await execute(
       contractAddress, 'function createBet(string memory _title, string memory _resolutionPrompt, uint256 _initialLiquidity, uint256 _closingTime, uint256 _resolutionTime, string memory _discussionUrl, string memory _tags, string memory _logoUrl)',
       [
@@ -165,9 +168,14 @@ export default function LaunchBetPage() {
         resolutionTime,
         formData.discussionUrl,
         formData.tags,
-        formData.logoUrl], {gasLimit: 1000000, wait: true});
-    console.log('create market transaction:', tx);
-    onTransactionSubmitted(tx)
+        formData.logoUrl], {wait: true});
+      console.log('create market transaction:', tx);
+      onTransactionSubmitted(tx?.hash)
+    } catch (error) {
+      console.error('Error execing creating market:', error);
+    } finally {
+      setPending(false);
+    }
   }
 
   const titleCharCount = formData.title.length
@@ -269,7 +277,19 @@ export default function LaunchBetPage() {
                       date={formData.resolutionTime}
                       setDate={(date) => handleDateTimeChange('resolutionTime', date, (document.getElementById('resolutionTime-time') as HTMLInputElement)?.value)}
                       placeholder="Select date"
-                      disabled={(date) => (formData.closingTime ? date < formData.closingTime : date < new Date())}
+                      disabled={(date) => {
+                        if (formData.closingTime) {
+                          // Compare only the date part (ignoring time)
+                          const closingDate = new Date(formData.closingTime.getFullYear(), formData.closingTime.getMonth(), formData.closingTime.getDate());
+                          const resolutionDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                          return resolutionDate < closingDate;
+                        }
+                        // If no closing time, disable dates before today
+                        const today = new Date();
+                        const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                        const resolutionDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                        return resolutionDate < todayDate;
+                      }}
                     />
                   </div>
                   <Input
@@ -342,7 +362,7 @@ export default function LaunchBetPage() {
               </div>
               <div className="space-y-2">
                 <div className="flex items-center space-x-2">
-                  <Label htmlFor="discussionUrl">Discussion URL (Optional)</Label>
+                  <Label htmlFor="discussionUrl">Social Media Post URL (Optional)</Label>
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger>
@@ -350,26 +370,37 @@ export default function LaunchBetPage() {
                       </TooltipTrigger>
                       <TooltipContent>
                         <p className="max-w-xs">
-                          A link to a Nostr note where traders can discuss this market. This promotes transparency and
-                          community engagement.
+                          Share a link to your X (Twitter) post or Nostr note about this bet. This allows others to discover, 
+                          share, and discuss your prediction market, increasing engagement and liquidity.
                         </p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
                 </div>
+                <p className="text-sm text-muted-foreground">
+                  Create and share a post about this bet on X (Twitter) or Nostr to help others discover and discuss it.
+                </p>
                 <div className="flex items-center space-x-2">
                   <Input
                     id="discussionUrl"
                     value={formData.discussionUrl}
                     onChange={handleInputChange}
-                    placeholder="nostr:note1..."
+                    placeholder="https://x.com/username/status/... or nostr:note1..."
                   />
-                  <Button variant="outline" asChild>
-                    <a href="https://nostrudel.ninja/" target="_blank" rel="noopener noreferrer">
-                      Create
-                      <ExternalLink className="w-4 h-4 ml-2" />
-                    </a>
-                  </Button>
+                  <div className="flex space-x-2">
+                    <Button variant="outline" asChild>
+                      <a href="https://x.com/compose/tweet" target="_blank" rel="noopener noreferrer">
+                        Create X Post
+                        <ExternalLink className="w-4 h-4 ml-2" />
+                      </a>
+                    </Button>
+                    <Button variant="outline" asChild>
+                      <a href="https://nostrudel.ninja/" target="_blank" rel="noopener noreferrer">
+                        Create Nostr Note
+                        <ExternalLink className="w-4 h-4 ml-2" />
+                      </a>
+                    </Button>
+                  </div>
                 </div>
               </div>
               <div className="space-y-2">
@@ -385,18 +416,38 @@ export default function LaunchBetPage() {
             </CardContent>
           </Card>
 
+          {error && <p className="text-sm text-destructive">{error.substring(0, 200)}</p>}
           <div className="flex justify-end">
-            <Button
-            type="button"
-            size="lg"
-            aria-label="Launch a Bet"
-            onClick={handleCreateMarket} 
-            disabled={!formData.title || !formData.resolutionPrompt || !formData.closingTime ||
-            !formData.resolutionTime || !formData.collateral || !formData.logoUrl}
-            >
-              Launch Market
-            </Button>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            <ApprovableButton
+              chainId={chainId!}
+              token={molyparketInfo?.collateralTokenAddress || ''}
+              amount={formData.collateral}
+              spender={contractAddress!}
+              approveButton={(onApprove, pending) => (<Button 
+                      className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+                      onClick={onApprove}
+                      disabled={pending}
+                    >
+                      Approve {pending ? '...' : ''}
+                    </Button>)}
+              actionButton={
+                    <Button 
+                      className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+                      onClick={handleCreateMarket}
+                      disabled={pending ||
+                        !formData.title || !formData.resolutionPrompt || !formData.closingTime ||
+                        !formData.resolutionTime || !formData.collateral || !formData.logoUrl
+                      }
+                    >
+                      Launch Market {pending ? '...' : ''}
+                    </Button>}
+              unknownState={ <Button 
+                      className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+                      disabled={true}
+                    >
+                      Launch Market
+                    </Button>}
+            />
           </div>
         </form>
       </main>
