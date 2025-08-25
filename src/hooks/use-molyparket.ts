@@ -74,6 +74,9 @@ export async function getPool(chainId: string, contractAddress: string, id: stri
         creator: res[1].toString(),
         closingTime: res[2].toString(),
         resolutionTime: res[3].toString(),
+        b: res[4].toString(),
+        nYes: res[5].toString(),
+        nNo: res[6].toString(),
         totalSupplyYes: res[7].toString(),
         totalSupplyNo: res[8].toString(),
         collateral: res[9].toString(),
@@ -195,10 +198,16 @@ export function useMolyparket(lookBack: number = PAGE_SIZE) {
             return;
         }
         // update pools with bet summaries
-        const newPools = Object.values(pools).map((pool) => ({
+        const newPools = Object.values(pools).map((pool) => {
+            const bs  = betSummaries[pool.id.toString()] || {};
+            return ({
             ...pool,
-            ...(betSummaries[pool.id.toString()] || {}),
-        }));
+            totalSupplyYes: bs.yesSupply || pool.totalSupplyYes,
+            totalSupplyNo: bs.noSupply || pool.totalSupplyNo,
+            collateral: bs.collateral || pool.collateral,
+            resolution: bs.resolution || pool.resolution,
+            }); 
+        });
         // Create keywords from tag.split(',').replace(/ /g, '').split(',') and count them sort by count.
         const keywords = Object.values(newPools).map((pool) => pool.tags.split(',').map(
             (tag) => tag.trim())).flat().filter((tag) => tag !== '').reduce((acc, tag) => {
